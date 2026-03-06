@@ -3,3 +3,8 @@
 # ----------------------
 data/raw/
 data/processed/
+
+# ----------------------
+# Connection strings and secrets
+# ----------------------
+.env
