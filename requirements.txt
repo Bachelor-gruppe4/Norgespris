@@ -1,0 +1,24 @@
+# Datahåndtering
+pandas==3.0.1
+numpy==2.4.2
+scipy==1.17.1
+
+# Visualisering
+matplotlib==3.10.8
+
+# Statistikk og feature engineering
+statsmodels==0.14.6
+geopy==2.4.1
+
+# Sky / filhåndtering
+azure-storage-blob==12.28.0
+azure-identity==1.25.2
+python-dotenv==1.2.2
+
+# Tid / kalender
+holidays==0.92
+arrow==1.4.0
+
+# Asynkront / systemspesifikke pakker
+anyio==4.12.1
+appnope==0.1.4 
