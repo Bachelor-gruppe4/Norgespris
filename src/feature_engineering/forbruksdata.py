@@ -1,19 +1,29 @@
 import pandas as pd
 import holidays
 
+def rename_columns(df):
+    """Endrer kolonnenavn"""
+    df = df.rename(columns={
+        "MeteringPointAnonymous": "metering_point_anonymous",
+        "TimestampUtc": "timestamp",
+        "Value": "value_kwh",
+        "TransformerStation": "transformer_station",
+        "ConsumptionCode": "consumption_code"
+    })
+    return df
 
 def convert_timestamp(df):
     """Konverter timestamp til datetime"""
-    df["TimestampUtc"] = pd.to_datetime(df["TimestampUtc"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
     return df
 
 
 def add_time_features(df):
     """Legger til time features"""
 
-    df["hour"] = df["TimestampUtc"].dt.hour
-    df["weekday"] = df["TimestampUtc"].dt.weekday
-    df["month"] = df["TimestampUtc"].dt.month
+    df["hour"] = df["timestamp"].dt.hour
+    df["weekday"] = df["timestamp"].dt.weekday
+    df["month"] = df["timestamp"].dt.month
 
     return df
 
@@ -30,19 +40,19 @@ def add_holiday_feature(df):
     """Norske helligdager + julaften og nyttårsaften"""
 
     norwegian_holidays = holidays.Norway()
-    dates = df["TimestampUtc"].dt.date
+    dates = df["timestamp"].dt.date
 
     # vanlige helligdager
     is_holiday = dates.isin(norwegian_holidays)
 
     # julaften og nyttårsaften
     is_christmas_eve = (
-        (df["TimestampUtc"].dt.month == 12) &
-        (df["TimestampUtc"].dt.day == 24)
+        (df["timestamp"].dt.month == 12) &
+        (df["timestamp"].dt.day == 24)
     )
     is_new_years_eve = (
-        (df["TimestampUtc"].dt.month == 12) &
-        (df["TimestampUtc"].dt.day == 31)
+        (df["timestamp"].dt.month == 12) &
+        (df["timestamp"].dt.day == 31)
     )
 
     df["is_holiday"] = is_holiday | is_christmas_eve | is_new_years_eve
@@ -65,6 +75,7 @@ def create_consumption_features(df):
     Full feature engineering pipeline
     """
 
+    df = rename_columns(df)
     df = convert_timestamp(df)
     df = add_time_features(df)
     df = add_weekend_feature(df)
