@@ -69,6 +69,29 @@ def add_day_night_feature(df):
 
     return df
 
+def add_norgespris_feature(df):
+    """
+    0 = før norgespris (nov 2024 - jan 2025)
+    1 = etter norgespris (nov 2025 - jan 2026)
+    """
+    
+    df["norgespris"] = pd.NA
+
+    df.loc[
+    (df["timestamp"] >= "2024-10-31") &
+    (df["timestamp"] <= "2025-02-01"),
+    "norgespris"
+] = 0
+
+    # sett perioder
+    df.loc[
+        (df["timestamp"] >= "2025-10-31") &
+        (df["timestamp"] <= "2026-02-01"),
+        "norgespris"
+    ] = 1
+
+    return df
+
 
 def create_consumption_features(df):
     """
@@ -81,5 +104,6 @@ def create_consumption_features(df):
     df = add_weekend_feature(df)
     df = add_holiday_feature(df)
     df = add_day_night_feature(df)
+    df = add_norgespris_feature(df)
 
     return df
