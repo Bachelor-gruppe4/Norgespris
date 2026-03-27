@@ -13,13 +13,13 @@ def clean_norgespris_df(df: pd.DataFrame) -> pd.DataFrame:
         "CountTotalMeteringPoint": "count_total"
     })
 
-    # Parse timestamp (blir datetime64[ns, UTC])
+    # Parse timestamp 
     df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
 
-    # Fjern timezone → blir datetime64[ns]
+    # Fjern timezone
     df["timestamp"] = df["timestamp"].dt.tz_convert(None)
 
-    # Sørg for riktig dtype eksplisitt (valgfritt, men tydelig)
+    # Sørg for riktig dtype eksplisitt
     df["timestamp"] = df["timestamp"].astype("datetime64[ns]")
 
     # Fjern komma i tall
