@@ -8,3 +8,10 @@ data/processed/
 # Connection strings and secrets
 # ----------------------
 .env
+
+# ----------------------
+# OS and Python cache files
+# ----------------------
+.DS_Store
+__pycache__/
+*.py[cod]
