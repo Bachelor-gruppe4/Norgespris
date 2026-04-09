@@ -2,6 +2,7 @@ from pathlib import Path
 import io
 import os
 import re
+import tempfile
 
 import duckdb
 import pandas as pd
@@ -15,6 +16,7 @@ AZURE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
 DUCKDB_CONTAINER = os.getenv("DUCKDB_CONTAINER", "duckdb")
 DUCKDB_BLOB_NAME = os.getenv("DUCKDB_BLOB_NAME", "stromdata.duckdb")
 ATTACHED_DB_ALIAS = "blobdb"
+LOCAL_DB_PATH = Path(tempfile.gettempdir()) / "stromdata.duckdb"
 
 # Tabeller vi bruker i appen. Disse kvalifiseres automatisk mot attached blob-db.
 KNOWN_TABLES = [
@@ -40,10 +42,6 @@ def _validate_config():
         )
 
 
-def _escape_sql(value: str) -> str:
-    return value.replace("'", "''")
-
-
 def _qualify_known_tables(query: str) -> str:
     """
     Kvalifiserer tabellnavn mot attached blob-db slik at eksisterende SQL i appen fortsatt virker.
@@ -56,28 +54,34 @@ def _qualify_known_tables(query: str) -> str:
     return transformed
 
 
-def _get_remote_connection() -> duckdb.DuckDBPyConnection:
+def _download_blob_duckdb_if_missing(force: bool = False) -> Path:
     """
-    Oppretter en in-memory DuckDB-tilkobling og attacher blob-lagret .duckdb-fil read-only.
+    Laster ned blob-lagret DuckDB til midlertidig lokal fil ved behov.
     """
     _validate_config()
+    if LOCAL_DB_PATH.exists() and not force:
+        return LOCAL_DB_PATH
 
-    con = duckdb.connect(":memory:")
-    con.execute("INSTALL azure")
-    con.execute("LOAD azure")
-
-    escaped_conn = _escape_sql(AZURE_CONNECTION_STRING)
-    con.execute(
-        f"""
-        CREATE OR REPLACE SECRET azure_blob_secret (
-            TYPE AZURE,
-            CONNECTION_STRING '{escaped_conn}'
-        )
-        """
+    blob_service_client = get_blob_service_client()
+    blob_client = blob_service_client.get_blob_client(
+        container=DUCKDB_CONTAINER,
+        blob=DUCKDB_BLOB_NAME,
     )
 
-    remote_uri = f"az://{DUCKDB_CONTAINER}/{DUCKDB_BLOB_NAME}"
-    con.execute(f"ATTACH '{remote_uri}' AS {ATTACHED_DB_ALIAS} (READ_ONLY)")
+    LOCAL_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(LOCAL_DB_PATH, "wb") as f:
+        f.write(blob_client.download_blob().readall())
+
+    return LOCAL_DB_PATH
+
+
+def _get_remote_connection() -> duckdb.DuckDBPyConnection:
+    """
+    Oppretter en in-memory DuckDB-tilkobling og attacher nedlastet db-fil read-only.
+    """
+    db_path = _download_blob_duckdb_if_missing()
+    con = duckdb.connect(":memory:")
+    con.execute(f"ATTACH '{db_path.as_posix()}' AS {ATTACHED_DB_ALIAS} (READ_ONLY)")
     return con
 
 
