@@ -1,10 +1,9 @@
 from pathlib import Path
 import sys
 import os
-import calendar
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
+import altair as alt
 
 # Sørg for at prosjektroten er på Python import-stien, uansett hvor appen kjøres fra.
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -43,41 +42,10 @@ BASE_DIR = Path(__file__).resolve().parent
 def get_asset_path(path):
     return (BASE_DIR / "../assets" / path).resolve()
 
-MONTH_NAMES = {11: "nov", 12: "des", 1: "jan"}
-
-def format_month_day(month, day):
-    return f"{day:02d}.{MONTH_NAMES[month]}"
-
-def build_month_day_options():
-    options = []
-    for month in [11, 12]:
-        days = calendar.monthrange(2024, month)[1]
-        for day in range(1, days + 1):
-            options.append((month, day))
-    for day in range(1, calendar.monthrange(2025, 1)[1] + 1):
-        options.append((1, day))
-    return options
-
-MONTH_DAY_OPTIONS = build_month_day_options()
-MONTH_DAY_LABELS = [format_month_day(month, day) for month, day in MONTH_DAY_OPTIONS]
-MONTH_STR_TO_MONTH = {v: k for k, v in MONTH_NAMES.items()}
-
-def parse_month_day(label):
-    day_str, month_str = label.split('.')
-    return int(day_str), MONTH_STR_TO_MONTH[month_str]
-
-def month_day_index(label):
-    day, month = parse_month_day(label)
-    if month == 11:
-        return day - 1
-    if month == 12:
-        return 30 + day
-    return 61 + day
-
-def season_date(label, season_start_year):
-    day, month = parse_month_day(label)
-    year = season_start_year if month in (11, 12) else season_start_year + 1
-    return datetime(year, month, day).date()
+SEASON_1_START = "2024-11-01"
+SEASON_1_END = "2025-01-31"
+SEASON_2_START = "2025-11-01"
+SEASON_2_END = "2026-01-31"
 
 capgemini_logo = get_asset_path("images/Capgemini_201x_logo.svg")
 a_energi_logo = get_asset_path("images/file.svg")
@@ -180,20 +148,32 @@ def get_time_series_data(område="breive", start_date=None, end_date=None, group
 
 
 @st.cache_data
-def get_season_comparison(område="breive", month_day="01.nov", consumption_codes=None):
+def get_season_comparison(område="breive", day_type="Hverdag", month_filter="Alle", consumption_codes=None):
     """
-    Henter gjennomsnittlig døgnprofil for én utvalgt dag i to sesonger uten å bruke norgespris-kolonnen.
+    Henter gjennomsnittlig døgnprofil i to sesonger filtrert på helg/hverdag og helligdag.
     """
     table_name = f"forbruksdata_{område.lower()}"
     timestamp_expr = "CAST(timestamp AS TIMESTAMP)"
-
-    season1_date = season_date(month_day, 2024)
-    season2_date = season_date(month_day, 2025)
 
     code_filter = ""
     if consumption_codes is not None:
         codes_str = ", ".join(str(code) for code in consumption_codes)
         code_filter = f"AND consumption_code IN ({codes_str})"
+
+    if day_type == "Alle":
+        day_type_filter = ""
+    elif day_type == "Helligdag":
+        day_type_filter = "AND is_holiday = TRUE"
+    elif day_type == "Helg":
+        day_type_filter = "AND is_weekend = TRUE AND is_holiday = FALSE"
+    else:  # Hverdag
+        day_type_filter = "AND is_weekend = FALSE AND is_holiday = FALSE"
+
+    month_map = {"November": 11, "Desember": 12, "Januar": 1}
+    if month_filter in month_map:
+        month_sql_filter = f"AND MONTH({timestamp_expr}) = {month_map[month_filter]}"
+    else:
+        month_sql_filter = ""
 
     query = f"""
     SELECT hour, season_label, AVG(value_kwh) AS avg_forbruk
@@ -203,7 +183,9 @@ def get_season_comparison(område="breive", month_day="01.nov", consumption_code
             'Før Norgespris' AS season_label,
             value_kwh
         FROM {table_name}
-        WHERE DATE({timestamp_expr}) = '{season1_date}'
+                WHERE DATE({timestamp_expr}) BETWEEN '{SEASON_1_START}' AND '{SEASON_1_END}'
+                                        {day_type_filter}
+                    {month_sql_filter}
           {code_filter}
         UNION ALL
         SELECT
@@ -211,7 +193,9 @@ def get_season_comparison(område="breive", month_day="01.nov", consumption_code
             'Etter Norgespris' AS season_label,
             value_kwh
         FROM {table_name}
-        WHERE DATE({timestamp_expr}) = '{season2_date}'
+                WHERE DATE({timestamp_expr}) BETWEEN '{SEASON_2_START}' AND '{SEASON_2_END}'
+                    {day_type_filter}
+                    {month_sql_filter}
           {code_filter}
     )
     GROUP BY hour, season_label
@@ -224,66 +208,139 @@ def get_season_comparison(område="breive", month_day="01.nov", consumption_code
     except Exception as e:
         st.error(f"Kunne ikke hente sesong-sammenligning: {e}")
         return pd.DataFrame()
+    
+@st.cache_data
+def get_norgespris_user_stats(område="breive", month_filter="Alle"):
+    """
+    Henter antall brukere med Norgespris fra ferdig aggregert tabell.
+    """
 
+    table_name = f"norgespris_{område.lower()}"
+    timestamp_expr = "CAST(timestamp AS TIMESTAMP)"
+
+    month_map = {
+        "November": 11,
+        "Desember": 12,
+        "Januar": 1
+    }
+
+    month_sql_filter = ""
+    if month_filter in month_map:
+        month_sql_filter = f"AND MONTH({timestamp_expr}) = {month_map[month_filter]}"
+
+    query = f"""
+    SELECT count_total
+    FROM {table_name}
+    WHERE DATE({timestamp_expr}) BETWEEN '{SEASON_2_START}' AND '{SEASON_2_END}'
+      {month_sql_filter}
+    ORDER BY {timestamp_expr} DESC
+    LIMIT 1
+    """
+
+    try:
+        df = run_query(query)
+        if not df.empty:
+            return int(df.iloc[0]["count_total"])
+        return 0
+    except Exception as e:
+        st.error(f"Kunne ikke hente Norgespris-statistikk: {e}")
+        return 0
 
 @st.cache_data
-def get_norgespris_user_count(område="breive", month_day="01.nov"):
-    """
-    Henter antall brukere med Norgespris for en gitt dag i begge sesonger.
-    """
-    table_name = f"norgespris_{område.lower()}"
-    
-    season1_date = season_date(month_day, 2024)
-    season2_date = season_date(month_day, 2025)
-    
+def get_total_users(område="breive", consumption_codes=None):
+    table_name = f"forbruksdata_{område.lower()}"
+
+    code_filter = ""
+    if consumption_codes is not None:
+        codes_str = ", ".join(str(code) for code in consumption_codes)
+        code_filter = f"AND consumption_code IN ({codes_str})"
+
     query = f"""
-    SELECT season_label, count_total
-    FROM (
-        SELECT
-            'Før Norgespris' AS season_label,
-            count_total
-        FROM {table_name}
-        WHERE timestamp = '{season1_date}'
-        UNION ALL
-        SELECT
-            'Etter Norgespris' AS season_label,
-            count_total
-        FROM {table_name}
-        WHERE timestamp = '{season2_date}'
-    )
+    SELECT COUNT(DISTINCT metering_point_anonymous) AS total_users
+    FROM {table_name}
+    WHERE 1=1
+      {code_filter}
     """
+
+    try:
+        df = run_query(query)
+        if not df.empty:
+            return int(df.iloc[0]["total_users"])
+        return 0
+    except Exception as e:
+        st.error(f"Kunne ikke hente totalt antall brukere: {e}")
+        return 0
     
+@st.cache_data
+def get_temperature_season_comparison(område="breive", day_type="Hverdag", month_filter="Alle", consumption_codes=None):
+    """
+    Henter gjennomsnittlig temperaturprofil per time i to sesonger basert på samme filtre som forbruksgrafen.
+    """
+    consumption_table = f"forbruksdata_{område.lower()}"
+    weather_table = f"værdata_{område.lower()}"
+    timestamp_expr = "CAST(timestamp AS TIMESTAMP)"
+
+    code_filter = ""
+    if consumption_codes is not None:
+        codes_str = ", ".join(str(code) for code in consumption_codes)
+        code_filter = f"AND consumption_code IN ({codes_str})"
+
+    if day_type == "Alle":
+        day_type_filter = ""
+    elif day_type == "Helligdag":
+        day_type_filter = "AND is_holiday = TRUE"
+    elif day_type == "Helg":
+        day_type_filter = "AND is_weekend = TRUE AND is_holiday = FALSE"
+    else:
+        day_type_filter = "AND is_weekend = FALSE AND is_holiday = FALSE"
+
+    month_map = {"November": 11, "Desember": 12, "Januar": 1}
+    if month_filter in month_map:
+        month_sql_filter = f"AND MONTH({timestamp_expr}) = {month_map[month_filter]}"
+    else:
+        month_sql_filter = ""
+
+    query = f"""
+    WITH filtered_hours AS (
+        SELECT DISTINCT
+            DATE_TRUNC('hour', {timestamp_expr}) AS ts_hour,
+            HOUR({timestamp_expr}) AS hour,
+            'Før Norgespris' AS season_label
+        FROM {consumption_table}
+        WHERE DATE({timestamp_expr}) BETWEEN '{SEASON_1_START}' AND '{SEASON_1_END}'
+          {day_type_filter}
+          {month_sql_filter}
+          {code_filter}
+
+        UNION ALL
+
+        SELECT DISTINCT
+            DATE_TRUNC('hour', {timestamp_expr}) AS ts_hour,
+            HOUR({timestamp_expr}) AS hour,
+            'Etter Norgespris' AS season_label
+        FROM {consumption_table}
+        WHERE DATE({timestamp_expr}) BETWEEN '{SEASON_2_START}' AND '{SEASON_2_END}'
+          {day_type_filter}
+          {month_sql_filter}
+          {code_filter}
+    )
+    SELECT
+        fh.hour,
+        fh.season_label,
+        AVG(w.air_temperature) AS avg_temperature
+    FROM filtered_hours fh
+    JOIN {weather_table} w
+      ON DATE_TRUNC('hour', CAST(w.timestamp AS TIMESTAMP)) = fh.ts_hour
+    GROUP BY fh.hour, fh.season_label
+    ORDER BY fh.hour, fh.season_label
+    """
+
     try:
         df = run_query(query)
         return df
     except Exception as e:
-        st.error(f"Kunne ikke hente brukerantal: {e}")
+        st.error(f"Kunne ikke hente temperatur-sammenligning: {e}")
         return pd.DataFrame()
-
-
-@st.cache_data
-def get_total_unique_users(område="breive", month_day="01.nov"):
-    """
-    Henter totalt antall unike brukere i forbruksdata for valgt dag etter Norgespris.
-    """
-    table_name = f"forbruksdata_{område.lower()}"
-    timestamp_expr = "CAST(timestamp AS TIMESTAMP)"
-    season2_date = season_date(month_day, 2025)
-
-    query = f"""
-    SELECT COUNT(DISTINCT metering_point_anonymous) AS total_unique_users
-    FROM {table_name}
-    WHERE DATE({timestamp_expr}) = '{season2_date}'
-    """
-
-    try:
-        df = run_query(query)
-        if not df.empty and "total_unique_users" in df.columns:
-            return int(df.iloc[0]["total_unique_users"])
-        return 0
-    except Exception as e:
-        st.error(f"Kunne ikke hente totalt antall unike brukere: {e}")
-        return 0
 
 
 @st.cache_data
@@ -392,12 +449,18 @@ with col_filter:
     område_options = ["Breive", "Frikstad", "Hartevatn", "Timenes"]
     selected_område = st.selectbox("Område", område_options, key="area")
     
-    # Dato-filter uten år
-    selected_day = st.selectbox(
-        "Velg dag (dag og måned)",
-        MONTH_DAY_LABELS,
+    selected_day_type = st.selectbox(
+        "Dagtype",
+        ["Alle", "Hverdag", "Helg", "Helligdag"],
         index=0,
-        key="selected_month_day"
+        key="selected_day_type"
+    )
+
+    selected_month = st.selectbox(
+        "Måned",
+        ["Alle", "November", "Desember", "Januar"],
+        index=0,
+        key="selected_month"
     )
 
     # Visningsalternativer
@@ -426,62 +489,141 @@ with col_graph:
     with st.spinner("Henter data..."):
         df = get_season_comparison(
             område=selected_område,
-            month_day=selected_day,
+            day_type=selected_day_type,
+            month_filter=selected_month,
+            consumption_codes=selected_consumption_codes
+        )
+        temp_df = get_temperature_season_comparison(
+            område=selected_område,
+            day_type=selected_day_type,
+            month_filter=selected_month,
             consumption_codes=selected_consumption_codes
         )
     
     if not df.empty:
         st.markdown(f"### Gjennomsnittlig døgnprofil - {selected_område.title()}")
-        st.write(f"Sammenligner dagen {selected_day} som \"Før Norgespris\" (2024-2025) og \"Etter Norgespris\" (2025-2026).")
+        st.write(
+            f"Sammenligner dagtype: {selected_day_type.lower()} "
+            f"og måned: {selected_month.lower()} for sesongene \"Før Norgespris\" (2024-2025) og \"Etter Norgespris\" (2025-2026)."
+        )
         
         df = df.sort_values('hour')
         pivot_df = df.pivot(index='hour', columns='season_label', values='avg_forbruk')
         
         if chart_type == "Linje":
-            st.line_chart(pivot_df)
+            plot_df = pivot_df.reset_index().melt(
+                id_vars="hour",
+                var_name="season_label",
+                value_name="avg_forbruk"
+            )
+
+            y_min = plot_df["avg_forbruk"].min()
+            y_max = plot_df["avg_forbruk"].max()
+
+            padding = (y_max - y_min) * 0.1
+
+            chart = alt.Chart(plot_df).mark_line(point=True).encode(
+                x=alt.X("hour:O", title="Time"),
+                y=alt.Y(
+                    "avg_forbruk:Q",
+                    title="Forbruk (kWh)",
+                    scale=alt.Scale(domain=[y_min - padding, y_max + padding])
+                ),
+                color=alt.Color("season_label:N", title="Sesong"),
+                tooltip=[
+                        alt.Tooltip("hour:O", title="Time"),
+                        alt.Tooltip("avg_forbruk:Q", title="Forbruk (kWh)", format=".2f"),
+                        alt.Tooltip("season_label:N", title="Sesong")
+]
+            ).properties(height=400)
+
+            st.altair_chart(chart, use_container_width=True)
+
         elif chart_type == "Stolpe":
             st.bar_chart(pivot_df)
+
         elif chart_type == "Område":
             st.area_chart(pivot_df)
-        
-        # Vis statistikk
-        user_count_df = get_norgespris_user_count(
-            område=selected_område,
-            month_day=selected_day
-        )
-        total_unique_users = get_total_unique_users(
-            område=selected_område,
-            month_day=selected_day
-        )
-        
-        col_stats1, col_stats2, col_stats3 = st.columns(3)
-        with col_stats1:
-            st.metric("Gjennomsnitt", f"{pivot_df.mean().mean():.2f} kWh")
-        with col_stats2:
-            st.metric("Maksimum", f"{pivot_df.max().max():.2f} kWh")
-        with col_stats3:
-            if not user_count_df.empty:
-                etter_row = user_count_df[user_count_df["season_label"] == "Etter Norgespris"]
-                if not etter_row.empty:
-                    norgespris_users = int(etter_row["count_total"].iloc[0])
-                else:
-                    norgespris_users = int(user_count_df["count_total"].iloc[-1])
 
-                if total_unique_users > 0:
-                    st.metric(
-                        f"Antall brukere med Norgespris i {selected_område}",
-                        f"{norgespris_users} av {total_unique_users}"
-                    )
+        # Vis statistikk
+        norgespris_users = get_norgespris_user_stats(
+            område=selected_område,
+            month_filter=selected_month
+        )
+
+        total_users = get_total_users(
+            område=selected_område,
+            consumption_codes=selected_consumption_codes
+        )
+        avg_per_season = pivot_df.mean()
+
+        before_avg = avg_per_season.get("Før Norgespris", None)
+        after_avg = avg_per_season.get("Etter Norgespris", None)
+        
+        col_stats1, col_stats2, col_stats3, col_stats4 = st.columns(4)
+
+        with col_stats1:
+            if before_avg is not None:
+                st.metric("Gjennomsnittlig forbruk før Norgespris", f"{before_avg:.2f} kWh")
+
+        with col_stats2:
+            if after_avg is not None:
+                st.metric("Gjennomsnittlig forbruk etter Norgespris", f"{after_avg:.2f} kWh")
+        with col_stats3:
+            if before_avg is not None and after_avg is not None:
+                if before_avg > 0:
+                    change_pct = ((after_avg - before_avg) / before_avg) * 100
+                    change_str = f"{change_pct:+.2f}%"
                 else:
-                    st.metric(
-                        f"Antall brukere med Norgespris i {selected_område}",
-                        f"{norgespris_users}"
-                    )
-            else:
-                st.metric(f"Antall brukere med Norgespris i {selected_område}", "N/A")
+                    change_str = "N/A"
+                st.metric("Prosentvis endring", change_str)
+        with col_stats4:
+            st.metric(
+                f"Antall brukere med Norgespris i {selected_område}",
+                f"{norgespris_users} av {total_users}"
+)
+
+        if not temp_df.empty:
+            st.markdown("#### Gjennomsnittlig temperatur (°C)")
+            temp_df = temp_df.sort_values("hour")
+            temp_pivot_df = temp_df.pivot(index="hour", columns="season_label", values="avg_temperature")
+
+            temp_plot_df = temp_pivot_df.reset_index().melt(
+                id_vars="hour",
+                var_name="season_label",
+                value_name="avg_temperature"
+            )
+
+            temp_y_min = temp_plot_df["avg_temperature"].min()
+            temp_y_max = temp_plot_df["avg_temperature"].max()
+            temp_padding = (temp_y_max - temp_y_min) * 0.1
+
+            chart_temp = alt.Chart(temp_plot_df).mark_line(point=True).encode(
+                x=alt.X("hour:O", title="Time"),
+                y=alt.Y(
+                    "avg_temperature:Q",
+                    title="Temperatur (°C)",
+                    scale=alt.Scale(domain=[temp_y_min - temp_padding, temp_y_max + temp_padding])
+                ),
+                color=alt.Color("season_label:N", title="Sesong"),
+                tooltip=[
+                    alt.Tooltip("hour:O", title="Time"),
+                    alt.Tooltip("avg_temperature:Q", title="Temperatur (°C)", format=".2f"),
+                    alt.Tooltip("season_label:N", title="Sesong")
+                ]
+            ).properties(height=400)
+
+            st.altair_chart(chart_temp, use_container_width=True)
+        
             
     else:
-        st.warning("Ingen data funnet for valgte filtre. Prøv å justere dato-intervallet eller området.")
+        if selected_day_type == "Helligdag" and selected_month in ["November", "Januar"]:
+            st.warning(
+                "Ingen data funnet: Helligdager finnes kun i desember i dette datasettet. "
+                "Velg måned Desember eller endre dagtype."
+            )
+        else:
+            st.warning("Ingen data funnet for valgte filtre. Prøv å justere filtrene eller området.")
         
         # Vis eksempel på tilgjengelige data
         st.markdown("**Tilgjengelige områder:**")
@@ -489,11 +631,11 @@ with col_graph:
             try:
                 test_df = get_forbruksdata(område, limit=1)
                 if not test_df.empty:
-                    st.write(f"✅ {område.title()}: Data tilgjengelig")
+                    st.write(f" {område.title()}: Data tilgjengelig")
                 else:
-                    st.write(f"❌ {område.title()}: Ingen data")
+                    st.write(f" {område.title()}: Ingen data")
             except:
-                st.write(f"❌ {område.title()}: Feil ved tilkobling")
+                st.write(f" {område.title()}: Feil ved tilkobling")
 
 
 st.markdown("---")
@@ -512,21 +654,5 @@ with col_img:
 with col_text:
     st.write("Om prosjektgruppen og samarbeid...")
 
-st.markdown("---")
 
-st.markdown(
-    "<div style='text-align:center; color:gray; font-size:12px;'>Samarbeidspartnere</div>",
-    unsafe_allow_html=True
-)
 
-# 5 kolonner: tom - logo - logo - logo - tom
-col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 2])
-
-with col2:
-    st.image(get_asset_path("images/file.svg"), width=60)
-
-with col3:
-    st.image(get_asset_path("images/Capgemini_201x_logo.svg"), width=100)
-
-with col4:
-    st.image(get_asset_path("images/uia.svg"), width=60)
