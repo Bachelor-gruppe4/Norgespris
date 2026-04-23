@@ -4,6 +4,7 @@ import os
 import streamlit as st
 import pandas as pd
 import altair as alt
+import numpy as np
 
 # Sørg for at prosjektroten er på Python import-stien, uansett hvor appen kjøres fra.
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -46,6 +47,14 @@ SEASON_1_START = "2024-11-01"
 SEASON_1_END = "2025-01-31"
 SEASON_2_START = "2025-11-01"
 SEASON_2_END = "2026-01-31"
+
+# Koeffisienter fra regresjon per stasjon.
+STATION_WEATHER_BETAS = {
+    "Breive": {"Temperatur": -0.0170, "Vind": 0.0073, "Nedbør": -0.0016},
+    "Frikstad": {"Temperatur": -0.0208, "Vind": 0.0084, "Nedbør": 0.0049},
+    "Hartevatn": {"Temperatur": -0.0164, "Vind": 0.0067, "Nedbør": -0.0022},
+    "Timenes": {"Temperatur": -0.0179, "Vind": 0.0101, "Nedbør": 0.0038},
+}
 
 capgemini_logo = get_asset_path("images/Capgemini_201x_logo.svg")
 a_energi_logo = get_asset_path("images/file.svg")
@@ -344,6 +353,119 @@ def get_temperature_season_comparison(område="breive", day_type="Hverdag", mont
 
 
 @st.cache_data
+def get_weather_season_covariates(område="breive", day_type="Hverdag", month_filter="Alle", consumption_codes=None):
+    """
+    Henter gjennomsnittlig værprofil per time i to sesonger (temperatur, vind og nedbør)
+    basert på samme filtre som forbruksgrafen.
+    """
+    consumption_table = f"forbruksdata_{område.lower()}"
+    weather_table = f"værdata_{område.lower()}"
+    timestamp_expr = "CAST(timestamp AS TIMESTAMP)"
+
+    code_filter = ""
+    if consumption_codes is not None:
+        codes_str = ", ".join(str(code) for code in consumption_codes)
+        code_filter = f"AND consumption_code IN ({codes_str})"
+
+    if day_type == "Alle":
+        day_type_filter = ""
+    elif day_type == "Helligdag":
+        day_type_filter = "AND is_holiday = TRUE"
+    elif day_type == "Helg":
+        day_type_filter = "AND is_weekend = TRUE AND is_holiday = FALSE"
+    else:
+        day_type_filter = "AND is_weekend = FALSE AND is_holiday = FALSE"
+
+    month_map = {"November": 11, "Desember": 12, "Januar": 1}
+    if month_filter in month_map:
+        month_sql_filter = f"AND MONTH({timestamp_expr}) = {month_map[month_filter]}"
+    else:
+        month_sql_filter = ""
+
+    query = f"""
+    WITH filtered_hours AS (
+        SELECT DISTINCT
+            DATE_TRUNC('hour', {timestamp_expr}) AS ts_hour,
+            HOUR({timestamp_expr}) AS hour,
+            'Før Norgespris' AS season_label
+        FROM {consumption_table}
+        WHERE DATE({timestamp_expr}) BETWEEN '{SEASON_1_START}' AND '{SEASON_1_END}'
+          {day_type_filter}
+          {month_sql_filter}
+          {code_filter}
+
+        UNION ALL
+
+        SELECT DISTINCT
+            DATE_TRUNC('hour', {timestamp_expr}) AS ts_hour,
+            HOUR({timestamp_expr}) AS hour,
+            'Etter Norgespris' AS season_label
+        FROM {consumption_table}
+        WHERE DATE({timestamp_expr}) BETWEEN '{SEASON_2_START}' AND '{SEASON_2_END}'
+          {day_type_filter}
+          {month_sql_filter}
+          {code_filter}
+    )
+    SELECT
+        fh.hour,
+        fh.season_label,
+        AVG(w.air_temperature) AS avg_temperature,
+        AVG(w.wind_speed) AS avg_wind_speed,
+        AVG(w.precipitation_mm) AS avg_precipitation_mm
+    FROM filtered_hours fh
+    JOIN {weather_table} w
+      ON DATE_TRUNC('hour', CAST(w.timestamp AS TIMESTAMP)) = fh.ts_hour
+    GROUP BY fh.hour, fh.season_label
+    ORDER BY fh.hour, fh.season_label
+    """
+
+    try:
+        return run_query(query)
+    except Exception as e:
+        st.error(f"Kunne ikke hente vær-sammenligning: {e}")
+        return pd.DataFrame()
+
+
+def apply_weather_control(profile_df, weather_df, betas, controls):
+    """
+    Justerer timeprofilen til en felles værreferanse per time.
+    Dette gjør før/etter-sammenligningen mindre følsom for ulike værforhold.
+    """
+    if profile_df.empty or weather_df.empty or not controls:
+        return profile_df
+
+    weather_cols = {
+        "Temperatur": ("avg_temperature", float(betas.get("Temperatur", 0.0))),
+        "Vind": ("avg_wind_speed", float(betas.get("Vind", 0.0))),
+        "Nedbør": ("avg_precipitation_mm", float(betas.get("Nedbør", 0.0))),
+    }
+
+    merged = profile_df.merge(weather_df, on=["hour", "season_label"], how="left")
+    ref_weather = weather_df.groupby("hour", as_index=False)[
+        ["avg_temperature", "avg_wind_speed", "avg_precipitation_mm"]
+    ].mean().rename(columns={
+        "avg_temperature": "ref_temperature",
+        "avg_wind_speed": "ref_wind_speed",
+        "avg_precipitation_mm": "ref_precipitation_mm",
+    })
+
+    merged = merged.merge(ref_weather, on="hour", how="left")
+    merged["weather_effect_log"] = 0.0
+
+    for control in controls:
+        source_col, beta = weather_cols.get(control, (None, 0.0))
+        if source_col is None:
+            continue
+        ref_col = source_col.replace("avg_", "ref_")
+        merged["weather_effect_log"] += beta * (merged[source_col] - merged[ref_col])
+
+    merged["avg_forbruk"] = np.expm1(np.log1p(merged["avg_forbruk"].clip(lower=0)) - merged["weather_effect_log"])
+    merged["avg_forbruk"] = merged["avg_forbruk"].clip(lower=0)
+
+    return merged[["hour", "season_label", "avg_forbruk"]]
+
+
+@st.cache_data
 def get_before_after_norgespris(område="breive", start_date=None, end_date=None, aggregate="day"):
     """
     Henter forbruk før og etter norgespris-flagget.
@@ -482,6 +604,47 @@ with col_filter:
     else:
         selected_consumption_codes = [35, 36]
 
+    weather_control_enabled = st.toggle(
+        "Kontroller for vær (regresjon)",
+        value=False,
+        help="Justerer kurvene med beta-verdier fra regresjonsanalysen."
+    )
+
+    selected_weather_controls = []
+    default_weather_betas = STATION_WEATHER_BETAS.get(
+        selected_område,
+        {"Temperatur": 0.0, "Vind": 0.0, "Nedbør": 0.0},
+    )
+    weather_betas = default_weather_betas.copy()
+
+    if weather_control_enabled:
+        st.caption(f"Stasjonskoeffisienter for {selected_område}. Du kan overstyre manuelt under.")
+        selected_weather_controls = st.multiselect(
+            "Aktive kontroller",
+            ["Temperatur", "Vind", "Nedbør"],
+            default=["Temperatur", "Vind", "Nedbør"],
+            key="selected_weather_controls",
+        )
+
+        weather_betas["Temperatur"] = st.number_input(
+            "Beta temperatur",
+            value=float(default_weather_betas["Temperatur"]),
+            format="%.6f",
+            key=f"beta_temperature_{selected_område}",
+        )
+        weather_betas["Vind"] = st.number_input(
+            "Beta vind",
+            value=float(default_weather_betas["Vind"]),
+            format="%.6f",
+            key=f"beta_wind_{selected_område}",
+        )
+        weather_betas["Nedbør"] = st.number_input(
+            "Beta nedbør",
+            value=float(default_weather_betas["Nedbør"]),
+            format="%.6f",
+            key=f"beta_precipitation_{selected_område}",
+        )
+
     selected_metric = "avg_forbruk"
 
 with col_graph:
@@ -493,12 +656,13 @@ with col_graph:
             month_filter=selected_month,
             consumption_codes=selected_consumption_codes
         )
-        temp_df = get_temperature_season_comparison(
+        weather_cov_df = get_weather_season_covariates(
             område=selected_område,
             day_type=selected_day_type,
             month_filter=selected_month,
             consumption_codes=selected_consumption_codes
         )
+        temp_df = weather_cov_df[["hour", "season_label", "avg_temperature"]].copy() if not weather_cov_df.empty else pd.DataFrame()
     
     if not df.empty:
         st.markdown(f"### Gjennomsnittlig døgnprofil - {selected_område.title()}")
@@ -508,14 +672,25 @@ with col_graph:
         )
         
         df = df.sort_values('hour')
-        pivot_df = df.pivot(index='hour', columns='season_label', values='avg_forbruk')
-        
+        plot_df = df[["hour", "season_label", "avg_forbruk"]].copy()
+
+        if weather_control_enabled:
+            if selected_weather_controls and not weather_cov_df.empty:
+                plot_df = apply_weather_control(
+                    profile_df=plot_df,
+                    weather_df=weather_cov_df,
+                    betas=weather_betas,
+                    controls=selected_weather_controls,
+                )
+            elif selected_weather_controls and weather_cov_df.empty:
+                st.info("Fant ikke værdata for valgt filter, viser ukontrollert graf.")
+
+        if weather_control_enabled and selected_weather_controls:
+            st.caption("Grafen er værjustert med valgte regresjonskoeffisienter.")
+
+        pivot_df = plot_df.pivot(index='hour', columns='season_label', values='avg_forbruk')
+
         if chart_type == "Linje":
-            plot_df = pivot_df.reset_index().melt(
-                id_vars="hour",
-                var_name="season_label",
-                value_name="avg_forbruk"
-            )
 
             y_min = plot_df["avg_forbruk"].min()
             y_max = plot_df["avg_forbruk"].max()
@@ -559,16 +734,18 @@ with col_graph:
 
         before_avg = avg_per_season.get("Før Norgespris", None)
         after_avg = avg_per_season.get("Etter Norgespris", None)
+
+        st.markdown("### Gjennomsnittlig forbruk")
         
         col_stats1, col_stats2, col_stats3, col_stats4 = st.columns(4)
 
         with col_stats1:
             if before_avg is not None:
-                st.metric("Gjennomsnittlig forbruk før Norgespris", f"{before_avg:.2f} kWh")
+                st.metric("Før Norgespris", f"{before_avg:.2f} kWh")
 
         with col_stats2:
             if after_avg is not None:
-                st.metric("Gjennomsnittlig forbruk etter Norgespris", f"{after_avg:.2f} kWh")
+                st.metric("Etter Norgespris", f"{after_avg:.2f} kWh")
         with col_stats3:
             if before_avg is not None and after_avg is not None:
                 if before_avg > 0:
@@ -579,7 +756,7 @@ with col_graph:
                 st.metric("Prosentvis endring", change_str)
         with col_stats4:
             st.metric(
-                f"Antall brukere med Norgespris i {selected_område}",
+                f"Brukere med Norgespris i {selected_område}",
                 f"{norgespris_users} av {total_users}"
 )
 
@@ -587,6 +764,10 @@ with col_graph:
             st.markdown("#### Gjennomsnittlig temperatur (°C)")
             temp_df = temp_df.sort_values("hour")
             temp_pivot_df = temp_df.pivot(index="hour", columns="season_label", values="avg_temperature")
+
+            temp_avg_per_season = temp_pivot_df.mean()
+            temp_before_avg = temp_avg_per_season.get("Før Norgespris", None)
+            temp_after_avg = temp_avg_per_season.get("Etter Norgespris", None)
 
             temp_plot_df = temp_pivot_df.reset_index().melt(
                 id_vars="hour",
@@ -614,6 +795,15 @@ with col_graph:
             ).properties(height=400)
 
             st.altair_chart(chart_temp, use_container_width=True)
+
+
+            temp_col1, temp_col2 = st.columns(2)
+            with temp_col1:
+                if temp_before_avg is not None:
+                    st.metric("Gjennomsnittstemperatur før Norgespris", f"{temp_before_avg:.2f} °C")
+            with temp_col2:
+                if temp_after_avg is not None:
+                    st.metric("Gjennomsnittstemperatur etter Norgespris", f"{temp_after_avg:.2f} °C")
         
             
     else:
