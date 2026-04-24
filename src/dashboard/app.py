@@ -48,12 +48,20 @@ SEASON_1_END = "2025-01-31"
 SEASON_2_START = "2025-11-01"
 SEASON_2_END = "2026-01-31"
 
-# Koeffisienter fra regresjon per stasjon.
-STATION_WEATHER_BETAS = {
-    "Breive": {"Temperatur": -0.0170, "Vind": 0.0073, "Nedbør": -0.0016},
-    "Frikstad": {"Temperatur": -0.0208, "Vind": 0.0084, "Nedbør": 0.0049},
-    "Hartevatn": {"Temperatur": -0.0164, "Vind": 0.0067, "Nedbør": -0.0022},
-    "Timenes": {"Temperatur": -0.0179, "Vind": 0.0101, "Nedbør": 0.0038},
+# Koeffisienter før Norgespris, brukt for værkontroll i grafen
+STATION_WEATHER_BETAS_BEFORE = {
+    "Breive": {"Temperatur": -0.014512, "Vind": 0.004102, "Nedbør": 0.011508},
+    "Frikstad": {"Temperatur": -0.018790, "Vind": 0.005962, "Nedbør": 0.010317},
+    "Hartevatn": {"Temperatur": -0.014199, "Vind": 0.004867, "Nedbør": 0.010142},
+    "Timenes": {"Temperatur": -0.016093, "Vind": 0.007853, "Nedbør": 0.009971},
+}
+
+# Koeffisienter etter Norgespris, brukt for værkontroll i grafen
+STATION_WEATHER_BETAS_AFTER = {
+    "Breive": {"Temperatur": -0.019255, "Vind": 0.011599, "Nedbør": -0.015119},
+    "Frikstad": {"Temperatur": -0.021582, "Vind": 0.008675, "Nedbør": 0.001878},
+    "Hartevatn": {"Temperatur": -0.017798, "Vind": 0.008936, "Nedbør": -0.01540},
+    "Timenes": {"Temperatur": -0.018753, "Vind": 0.010886, "Nedbør": 0.001263},
 }
 
 capgemini_logo = get_asset_path("images/Capgemini_201x_logo.svg")
@@ -426,7 +434,7 @@ def get_weather_season_covariates(område="breive", day_type="Hverdag", month_fi
         return pd.DataFrame()
 
 
-def apply_weather_control(profile_df, weather_df, betas, controls):
+def apply_weather_control(profile_df, weather_df, before_betas, after_betas, controls):
     """
     Justerer timeprofilen til en felles værreferanse per time.
     Dette gjør før/etter-sammenligningen mindre følsom for ulike værforhold.
@@ -435,9 +443,9 @@ def apply_weather_control(profile_df, weather_df, betas, controls):
         return profile_df
 
     weather_cols = {
-        "Temperatur": ("avg_temperature", float(betas.get("Temperatur", 0.0))),
-        "Vind": ("avg_wind_speed", float(betas.get("Vind", 0.0))),
-        "Nedbør": ("avg_precipitation_mm", float(betas.get("Nedbør", 0.0))),
+        "Temperatur": "avg_temperature",
+        "Vind": "avg_wind_speed",
+        "Nedbør": "avg_precipitation_mm",
     }
 
     merged = profile_df.merge(weather_df, on=["hour", "season_label"], how="left")
@@ -453,11 +461,17 @@ def apply_weather_control(profile_df, weather_df, betas, controls):
     merged["weather_effect_log"] = 0.0
 
     for control in controls:
-        source_col, beta = weather_cols.get(control, (None, 0.0))
+        source_col = weather_cols.get(control)
         if source_col is None:
             continue
+
+        beta_per_season = merged["season_label"].map({
+            "Før Norgespris": float(before_betas.get(control, 0.0)),
+            "Etter Norgespris": float(after_betas.get(control, 0.0)),
+        }).fillna(0.0)
+
         ref_col = source_col.replace("avg_", "ref_")
-        merged["weather_effect_log"] += beta * (merged[source_col] - merged[ref_col])
+        merged["weather_effect_log"] += beta_per_season * (merged[source_col] - merged[ref_col])
 
     merged["avg_forbruk"] = np.expm1(np.log1p(merged["avg_forbruk"].clip(lower=0)) - merged["weather_effect_log"])
     merged["avg_forbruk"] = merged["avg_forbruk"].clip(lower=0)
@@ -517,6 +531,19 @@ html {
     scroll-behavior: smooth;
 }
 
+:root {
+    --aenergi-accent: #FFBBFC;
+    --aenergi-deep: #3C000F;
+    --aenergi-number: #7D283D;
+    --aenergi-burgundy: #7D283D;
+}
+
+/* Global tekstfarge */
+.stApp,
+.stApp * {
+    color: var(--aenergi-burgundy) !important;
+}
+
 .logo-img {
     max-height: 50px;
 }
@@ -527,6 +554,96 @@ html {
     border: 1px solid #ccc;
     background-color: #f5f5f5;
 }
+
+/* Nullstill ekstra kort-styling på hver metric */
+div[data-testid="stMetric"] {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+}
+
+/* Rosa bakgrunn på hovedboksene */
+.st-key-consumption_box,
+.st-key-norgespris_box {
+    background: #fff3fe;
+    border: 1px solid #fff3fe;
+    border-radius: 12px;
+    padding: 0.55rem 0.75rem;
+}
+
+/* Label på metrikker */
+div[data-testid="stMetricLabel"] {
+    color: var(--aenergi-burgundy) !important;
+}
+
+/* Selve tallene */
+div[data-testid="stMetricValue"] {
+    color: var(--aenergi-burgundy) !important;
+}
+
+/* Toggle-bryteren - burgunder tema */
+div[data-testid="stToggle"] [role="switch"] {
+    background-color: #7D283D !important;
+    border: 1px solid #7D283D !important;
+}
+
+div[data-testid="stToggle"] [role="switch"][aria-checked="true"] {
+    background-color: #7D283D !important;
+    border-color: #7D283D !important;
+}
+
+/* Eksplisitt overstyring for vær-toggle (key=weather_control_enabled) */
+div[data-testid="stToggle"] input[type="checkbox"][id="weather_control_enabled"] + div,
+div[data-testid="stToggle"] input[type="checkbox"][id="weather_control_enabled"]:checked + div,
+div[data-testid="stToggle"] input[type="checkbox"][id="weather_control_enabled"] + div > div,
+div[data-testid="stToggle"] input[type="checkbox"][id="weather_control_enabled"]:checked + div > div {
+    background-color: #7D283D !important;
+    border-color: #7D283D !important;
+}
+
+div[data-testid="stToggle"] input[type="checkbox"][id="weather_control_enabled"] + div > div {
+    background-color: #ffffff !important;
+}
+
+/* Multiselect-tags - burgunder tema */
+div[data-testid="stMultiSelect"] .stTags {
+    background-color: #7D283D !important;
+    color: #FFBBFC !important;
+}
+
+div[data-testid="stMultiSelect"] [role="button"][aria-selected="true"] {
+    background-color: #7D283D !important;
+    border-color: #7D283D !important;
+    color: #FFBBFC !important;
+}
+
+/* Multiselect input-boks */
+div[data-testid="stMultiSelect"] > div > div {
+    border-color: #7D283D !important;
+}
+
+/* Burgunder outline ved hover/fokus (ikke rød) */
+div[data-testid="stMultiSelect"] [data-baseweb="select"] > div:hover,
+div[data-testid="stMultiSelect"] [data-baseweb="select"] > div:focus-within {
+    border-color: #7D283D !important;
+    box-shadow: 0 0 0 1px #7D283D !important;
+}
+
+/* Multiselect pills/tags */
+span[data-baseweb="tag"] {
+    background-color: #7D283D !important;
+    color: #FFBBFC !important;
+}
+
+/* Tving rosa tekst inni valgte piller (tekst + x-ikon) */
+span[data-baseweb="tag"],
+span[data-baseweb="tag"] *,
+div[data-testid="stMultiSelect"] [data-baseweb="tag"],
+div[data-testid="stMultiSelect"] [data-baseweb="tag"] * {
+    color: #FFBBFC !important;
+    fill: #FFBBFC !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -535,27 +652,17 @@ html {
 col1, col2 = st.columns([6, 1])
 
 with col1:
-    st.markdown("## Norgespris – Analyse av strømforbruk")
+    st.markdown(
+        "<h2>Norgespris – Analyse av strømforbruk</h2>",
+        unsafe_allow_html=True,
+    )
 
-with col2:
-    st.markdown("""
-    <a href="#prosjektet">
-        <button style="
-            padding:10px 20px;
-            border-radius:10px;
-            border:1px solid #ccc;
-            background-color:#f5f5f5;
-        ">
-            Prosjektet
-        </button>
-    </a>
-    """, unsafe_allow_html=True)
 
 st.markdown("---")
 
 
 # --- FORKLAR GRAF ---
-st.markdown("## Hva viser grafen?")
+st.header("Hva viser grafen?", anchor=False)
 st.write("""
 Denne grafen viser gjennomsnittlig døgnprofil for valgt trafostasjon.
 """)
@@ -565,7 +672,7 @@ Denne grafen viser gjennomsnittlig døgnprofil for valgt trafostasjon.
 col_filter, col_graph = st.columns([1, 4])
 
 with col_filter:
-    st.markdown("### Filter")
+    st.subheader("Filter", anchor=False)
     
     # Område-valg
     område_options = ["Breive", "Frikstad", "Hartevatn", "Timenes"]
@@ -585,11 +692,6 @@ with col_filter:
         key="selected_month"
     )
 
-    # Visningsalternativer
-    chart_type = st.selectbox("Graf-type", 
-                              ["Linje", "Stolpe", "Område"],
-                              key="chart_type")
-    
     # Consumption code filter
     consumption_code_option = st.selectbox(
         "Forbrukstype",
@@ -607,15 +709,21 @@ with col_filter:
     weather_control_enabled = st.toggle(
         "Kontroller for vær (regresjon)",
         value=False,
+        key="weather_control_enabled",
         help="Justerer kurvene med beta-verdier fra regresjonsanalysen."
     )
 
     selected_weather_controls = []
-    default_weather_betas = STATION_WEATHER_BETAS.get(
+    default_weather_betas_before = STATION_WEATHER_BETAS_BEFORE.get(
         selected_område,
         {"Temperatur": 0.0, "Vind": 0.0, "Nedbør": 0.0},
     )
-    weather_betas = default_weather_betas.copy()
+    default_weather_betas_after = STATION_WEATHER_BETAS_AFTER.get(
+        selected_område,
+        {"Temperatur": 0.0, "Vind": 0.0, "Nedbør": 0.0},
+    )
+    weather_betas_before = default_weather_betas_before.copy()
+    weather_betas_after = default_weather_betas_after.copy()
 
     if weather_control_enabled:
         st.caption(f"Stasjonskoeffisienter for {selected_område}. Du kan overstyre manuelt under.")
@@ -626,24 +734,49 @@ with col_filter:
             key="selected_weather_controls",
         )
 
-        weather_betas["Temperatur"] = st.number_input(
-            "Beta temperatur",
-            value=float(default_weather_betas["Temperatur"]),
-            format="%.6f",
-            key=f"beta_temperature_{selected_område}",
-        )
-        weather_betas["Vind"] = st.number_input(
-            "Beta vind",
-            value=float(default_weather_betas["Vind"]),
-            format="%.6f",
-            key=f"beta_wind_{selected_område}",
-        )
-        weather_betas["Nedbør"] = st.number_input(
-            "Beta nedbør",
-            value=float(default_weather_betas["Nedbør"]),
-            format="%.6f",
-            key=f"beta_precipitation_{selected_område}",
-        )
+        beta_col_before, beta_col_after = st.columns(2)
+
+        with beta_col_before:
+            st.caption("Før Norgespris")
+            weather_betas_before["Temperatur"] = st.number_input(
+                "Beta temperatur",
+                value=float(default_weather_betas_before["Temperatur"]),
+                format="%.6f",
+                key=f"beta_temperature_before_{selected_område}",
+            )
+            weather_betas_before["Vind"] = st.number_input(
+                "Beta vind",
+                value=float(default_weather_betas_before["Vind"]),
+                format="%.6f",
+                key=f"beta_wind_before_{selected_område}",
+            )
+            weather_betas_before["Nedbør"] = st.number_input(
+                "Beta nedbør",
+                value=float(default_weather_betas_before["Nedbør"]),
+                format="%.6f",
+                key=f"beta_precipitation_before_{selected_område}",
+            )
+
+        with beta_col_after:
+            st.caption("Etter Norgespris")
+            weather_betas_after["Temperatur"] = st.number_input(
+                "Beta temperatur",
+                value=float(default_weather_betas_after["Temperatur"]),
+                format="%.6f",
+                key=f"beta_temperature_after_{selected_område}",
+            )
+            weather_betas_after["Vind"] = st.number_input(
+                "Beta vind",
+                value=float(default_weather_betas_after["Vind"]),
+                format="%.6f",
+                key=f"beta_wind_after_{selected_område}",
+            )
+            weather_betas_after["Nedbør"] = st.number_input(
+                "Beta nedbør",
+                value=float(default_weather_betas_after["Nedbør"]),
+                format="%.6f",
+                key=f"beta_precipitation_after_{selected_område}",
+            )
 
     selected_metric = "avg_forbruk"
 
@@ -665,7 +798,7 @@ with col_graph:
         temp_df = weather_cov_df[["hour", "season_label", "avg_temperature"]].copy() if not weather_cov_df.empty else pd.DataFrame()
     
     if not df.empty:
-        st.markdown(f"### Gjennomsnittlig døgnprofil - {selected_område.title()}")
+        st.subheader(f"Gjennomsnittlig døgnprofil - {selected_område.title()}", anchor=False)
         st.write(
             f"Sammenligner dagtype: {selected_day_type.lower()} "
             f"og måned: {selected_month.lower()} for sesongene \"Før Norgespris\" (2024-2025) og \"Etter Norgespris\" (2025-2026)."
@@ -679,46 +812,43 @@ with col_graph:
                 plot_df = apply_weather_control(
                     profile_df=plot_df,
                     weather_df=weather_cov_df,
-                    betas=weather_betas,
+                    before_betas=weather_betas_before,
+                    after_betas=weather_betas_after,
                     controls=selected_weather_controls,
                 )
             elif selected_weather_controls and weather_cov_df.empty:
                 st.info("Fant ikke værdata for valgt filter, viser ukontrollert graf.")
 
-        if weather_control_enabled and selected_weather_controls:
-            st.caption("Grafen er værjustert med valgte regresjonskoeffisienter.")
-
         pivot_df = plot_df.pivot(index='hour', columns='season_label', values='avg_forbruk')
 
-        if chart_type == "Linje":
+        y_min = plot_df["avg_forbruk"].min()
+        y_max = plot_df["avg_forbruk"].max()
 
-            y_min = plot_df["avg_forbruk"].min()
-            y_max = plot_df["avg_forbruk"].max()
+        padding = (y_max - y_min) * 0.1
 
-            padding = (y_max - y_min) * 0.1
-
-            chart = alt.Chart(plot_df).mark_line(point=True).encode(
-                x=alt.X("hour:O", title="Time"),
-                y=alt.Y(
-                    "avg_forbruk:Q",
-                    title="Forbruk (kWh)",
-                    scale=alt.Scale(domain=[y_min - padding, y_max + padding])
+        chart = alt.Chart(plot_df).mark_line(point=True).encode(
+            x=alt.X("hour:O", title="Time"),
+            y=alt.Y(
+                "avg_forbruk:Q",
+                title="Forbruk (kWh)",
+                scale=alt.Scale(domain=[y_min - padding, y_max + padding])
+            ),
+            color=alt.Color(
+                "season_label:N",
+                title="Sesong",
+                scale=alt.Scale(
+                    domain=["Før Norgespris", "Etter Norgespris"],
+                    range=["#FFBBFC", "#7D283D"],
                 ),
-                color=alt.Color("season_label:N", title="Sesong"),
-                tooltip=[
-                        alt.Tooltip("hour:O", title="Time"),
-                        alt.Tooltip("avg_forbruk:Q", title="Forbruk (kWh)", format=".2f"),
-                        alt.Tooltip("season_label:N", title="Sesong")
+            ),
+            tooltip=[
+                    alt.Tooltip("hour:O", title="Time"),
+                    alt.Tooltip("avg_forbruk:Q", title="Forbruk (kWh)", format=".2f"),
+                    alt.Tooltip("season_label:N", title="Sesong")
 ]
-            ).properties(height=400)
+        ).properties(height=400)
 
-            st.altair_chart(chart, use_container_width=True)
-
-        elif chart_type == "Stolpe":
-            st.bar_chart(pivot_df)
-
-        elif chart_type == "Område":
-            st.area_chart(pivot_df)
+        st.altair_chart(chart, use_container_width=True)
 
         # Vis statistikk
         norgespris_users = get_norgespris_user_stats(
@@ -735,33 +865,40 @@ with col_graph:
         before_avg = avg_per_season.get("Før Norgespris", None)
         after_avg = avg_per_season.get("Etter Norgespris", None)
 
-        st.markdown("### Gjennomsnittlig forbruk")
-        
-        col_stats1, col_stats2, col_stats3, col_stats4 = st.columns(4)
+        stats_col_left, stats_col_right = st.columns([2.6, 1.4])
 
-        with col_stats1:
-            if before_avg is not None:
-                st.metric("Før Norgespris", f"{before_avg:.2f} kWh")
+        with stats_col_left:
+            with st.container(border=False, key="consumption_box"):
+                st.markdown("**Gjennomsnittlig forbruk**")
 
-        with col_stats2:
-            if after_avg is not None:
-                st.metric("Etter Norgespris", f"{after_avg:.2f} kWh")
-        with col_stats3:
-            if before_avg is not None and after_avg is not None:
-                if before_avg > 0:
-                    change_pct = ((after_avg - before_avg) / before_avg) * 100
-                    change_str = f"{change_pct:+.2f}%"
-                else:
-                    change_str = "N/A"
-                st.metric("Prosentvis endring", change_str)
-        with col_stats4:
-            st.metric(
-                f"Brukere med Norgespris i {selected_område}",
-                f"{norgespris_users} av {total_users}"
-)
+                col_stats1, col_stats2, col_stats3 = st.columns(3)
+
+                with col_stats1:
+                    if before_avg is not None:
+                        st.metric("Før Norgespris", f"{before_avg:.2f} kWh")
+
+                with col_stats2:
+                    if after_avg is not None:
+                        st.metric("Etter Norgespris", f"{after_avg:.2f} kWh")
+                with col_stats3:
+                    if before_avg is not None and after_avg is not None:
+                        if before_avg > 0:
+                            change_pct = ((after_avg - before_avg) / before_avg) * 100
+                            change_str = f"{change_pct:+.2f}%"
+                        else:
+                            change_str = "N/A"
+                        st.metric("Prosentvis endring", change_str)
+
+        with stats_col_right:
+            with st.container(border=False, key="norgespris_box"):
+                st.markdown("**Norgespris-brukere**")
+                st.metric(
+                    f"Brukere i {selected_område}",
+                    f"{norgespris_users} av {total_users}"
+                )
 
         if not temp_df.empty:
-            st.markdown("#### Gjennomsnittlig temperatur (°C)")
+            st.subheader("Gjennomsnittlig temperatur (°C)", anchor=False)
             temp_df = temp_df.sort_values("hour")
             temp_pivot_df = temp_df.pivot(index="hour", columns="season_label", values="avg_temperature")
 
@@ -786,7 +923,14 @@ with col_graph:
                     title="Temperatur (°C)",
                     scale=alt.Scale(domain=[temp_y_min - temp_padding, temp_y_max + temp_padding])
                 ),
-                color=alt.Color("season_label:N", title="Sesong"),
+                color=alt.Color(
+                    "season_label:N",
+                    title="Sesong",
+                    scale=alt.Scale(
+                        domain=["Før Norgespris", "Etter Norgespris"],
+                        range=["#FFBBFC", "#7D283D"],
+                    ),
+                ),
                 tooltip=[
                     alt.Tooltip("hour:O", title="Time"),
                     alt.Tooltip("avg_temperature:Q", title="Temperatur (°C)", format=".2f"),
@@ -797,13 +941,23 @@ with col_graph:
             st.altair_chart(chart_temp, use_container_width=True)
 
 
-            temp_col1, temp_col2 = st.columns(2)
-            with temp_col1:
-                if temp_before_avg is not None:
-                    st.metric("Gjennomsnittstemperatur før Norgespris", f"{temp_before_avg:.2f} °C")
-            with temp_col2:
-                if temp_after_avg is not None:
-                    st.metric("Gjennomsnittstemperatur etter Norgespris", f"{temp_after_avg:.2f} °C")
+            temp_stats_col_left, temp_stats_col_right = st.columns([2.6, 1.4])
+
+            with temp_stats_col_left:
+                st.markdown("**Gjennomsnittlig temperatur**")
+                temp_col1, temp_col2, temp_col3 = st.columns(3)
+                with temp_col1:
+                    if temp_before_avg is not None:
+                        st.metric("Før Norgespris", f"{temp_before_avg:.2f} °C")
+                with temp_col2:
+                    if temp_after_avg is not None:
+                        st.metric("Etter Norgespris", f"{temp_after_avg:.2f} °C")
+                with temp_col3:
+                    if temp_before_avg is not None and temp_after_avg is not None:
+                        temp_diff = temp_after_avg - temp_before_avg
+                        st.metric("Differanse (Etter - Før)", f"{temp_diff:+.2f} °C")
+                    else:
+                        st.metric("Differanse (Etter - Før)", "N/A")
         
             
     else:
@@ -826,23 +980,3 @@ with col_graph:
                     st.write(f" {område.title()}: Ingen data")
             except:
                 st.write(f" {område.title()}: Feil ved tilkobling")
-
-
-st.markdown("---")
-
-
-# --- PROSJEKTSEKSJON (ID FOR SCROLL) ---
-st.markdown('<div id="prosjektet"></div>', unsafe_allow_html=True)
-
-st.markdown("## Prosjektet")
-
-col_img, col_text = st.columns([1, 3])
-
-with col_img:
-    st.image("https://via.placeholder.com/300")
-
-with col_text:
-    st.write("Om prosjektgruppen og samarbeid...")
-
-
-
