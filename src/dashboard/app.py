@@ -530,6 +530,10 @@ st.markdown("""
 html {
     scroll-behavior: smooth;
 }
+            
+.block-container {
+    padding-top: 2.0rem !important;
+}
 
 :root {
     --aenergi-accent: #FFBBFC;
@@ -644,6 +648,15 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] * {
     color: #FFBBFC !important;
     fill: #FFBBFC !important;
 }
+            
+.station-info-box {
+    background: #fff3fe;
+    border: 1px solid #fff3fe;
+    border-radius: 12px;
+    padding: 0.9rem 1.1rem;
+    margin: 0.75rem 0 1.25rem 0;
+    line-height: 1.6;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -664,7 +677,9 @@ st.markdown("---")
 # --- FORKLAR GRAF ---
 st.header("Hva viser grafen?", anchor=False)
 st.write("""
-Denne grafen viser gjennomsnittlig døgnprofil for valgt trafostasjon.
+Grafen viser gjennomsnittlig døgnprofil for valgt trafostasjon, basert på aggregert forbruk per time. 
+Den sammenligner forbruket før og etter innføringen av Norgespris, gitt de valgte filtrene. 
+Ved å bruke gjennomsnittlige døgnprofiler tones enkeltstående avvik ned, slik at forskjeller i døgnrytme, belastningstopper og overordnede forbruksmønstre blir tydeligere.
 """)
 
 
@@ -780,6 +795,13 @@ with col_filter:
 
     selected_metric = "avg_forbruk"
 
+station_texts = {
+    "Breive": "For Breive viser regresjonsanalysen at en økning på 10 prosentpoeng i andelen kunder med Norgespris er assosiert med en estimert forbruksøkning på 0,30 %, når det kontrolleres for temperatur, vind, nedbør, tidspunkt på døgnet, måned, helg og helligdag. Ved full utbredelse av Norgespris tilsvarer dette en estimert økning på 3,02 %. I etterperioden er den estimerte totale effekten 166 573 kWh, som utgjør 3,89 % av totalforbruket. Dette tilsvarer omtrent 128,2 kWh per kunde i etterperioden, eller 1,583 kWh per kunde per dag.",
+    "Frikstad": "For Frikstad viser regresjonsanalysen at en økning på 10 prosentpoeng i andelen kunder med Norgespris er assosiert med en estimert forbruksøkning på omtrent 0,19–0,20 %, når det kontrolleres for temperatur, vind, nedbør, tidspunkt på døgnet, måned, helg og helligdag. Ved full utbredelse av Norgespris tilsvarer dette en estimert økning på omtrent 1,92–1,98 %. I etterperioden er den estimerte totale effekten beregnet til omtrent 277 000–285 000 kWh, som utgjør rundt 2,15–2,21 % av totalforbruket. Dette tilsvarer omtrent 45–46 kWh per kunde i etterperioden.",
+    "Hartevatn": "For Hartevatn viser regresjonsanalysen at en økning på 10 prosentpoeng i andelen kunder med Norgespris er assosiert med en estimert forbruksøkning på 0,32 %, når det kontrolleres for temperatur, vind, nedbør, tidspunkt på døgnet, måned, helg og helligdag. Ved full utbredelse av Norgespris tilsvarer dette en estimert økning på 3,21 %. I etterperioden er den estimerte totale effekten 277 891 kWh, som utgjør 4,31 % av totalforbruket. Dette tilsvarer omtrent 127,5 kWh per kunde i etterperioden, eller 1,634 kWh per kunde per dag.",
+    "Timenes": "For Timenes viser regresjonsanalysen at en økning på 10 prosentpoeng i andelen kunder med Norgespris er assosiert med en estimert forbruksøkning på 0,39 %, når det kontrolleres for temperatur, vind, nedbør, tidspunkt på døgnet, måned, helg og helligdag. Ved full utbredelse av Norgespris tilsvarer dette en estimert økning på 3,96 %. I etterperioden er den estimerte totale effekten 547 247 kWh, som utgjør 3,93 % av totalforbruket. Dette tilsvarer omtrent 156,3 kWh per kunde i etterperioden, eller 2,004 kWh per kunde per dag.",
+}
+
 with col_graph:
     # Hent data basert på filtre
     with st.spinner("Henter data..."):
@@ -799,6 +821,14 @@ with col_graph:
     
     if not df.empty:
         st.subheader(f"Gjennomsnittlig døgnprofil - {selected_område.title()}", anchor=False)
+        st.markdown(
+            f"""
+            <div class="station-info-box">
+                {station_texts.get(selected_område, "")}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
         st.write(
             f"Sammenligner dagtype: {selected_day_type.lower()} "
             f"og måned: {selected_month.lower()} for sesongene \"Før Norgespris\" (2024-2025) og \"Etter Norgespris\" (2025-2026)."
