@@ -887,8 +887,7 @@ with col_graph:
         )
 
         total_users = get_total_users(
-            område=selected_område,
-            consumption_codes=selected_consumption_codes
+            område=selected_område
         )
         avg_per_season = pivot_df.mean()
 
