@@ -1,25 +1,41 @@
-name: norgespris
+name: bachelor2026
 channels:
   - conda-forge
+
 dependencies:
-  - python=3.11
+  - python=3.11.4
+
+  # Datahåndtering
   - pandas
   - numpy
-  - scipy
+
+  # Statistikk / regresjon
+  - linearmodels
+
+  # Visualisering
   - matplotlib
-  - statsmodels
-  - scikit-learn
-  - notebook
-  - ipykernel
+  - altair
+
+  # Database
   - duckdb
-  - arrow
+
+  # Jupyter / kernel
+  - jupyter
+  - ipykernel
+
+  # pip-pakker
   - pip
   - pip:
-      - requests
-      - azure-storage-blob
-      - azure-identity
-      - python-dotenv
+      # Dashboard
       - streamlit
-      - pyspark
-      - holidays
+
+      # API / data
+      - requests
       - geopy
+
+      # Azure / miljø
+      - azure-storage-blob
+      - python-dotenv
+
+      # Tid / helligdager
+      - holidays
