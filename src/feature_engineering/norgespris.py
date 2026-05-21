@@ -6,23 +6,23 @@ def clean_norgespris_df(df: pd.DataFrame) -> pd.DataFrame:
     Rydder og standardiserer norgespris-data
     """
 
-    # Gi riktige kolonnenavn
+    
     df = df.rename(columns={
         "TransformerStation": "transformer_station",
         "FromDate": "timestamp",
         "CountTotalMeteringPoint": "count_total"
     })
 
-    # Parse timestamp 
+    
     df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
 
-    # Fjern timezone
+    
     df["timestamp"] = df["timestamp"].dt.tz_convert(None)
 
-    # Sørg for riktig dtype eksplisitt
+    
     df["timestamp"] = df["timestamp"].astype("datetime64[ns]")
 
-    # Fjern komma i tall
+    
     df["count_total"] = (
         df["count_total"]
         .astype(str)
@@ -56,7 +56,7 @@ def fill_missing_days_per_station(
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df = df.set_index("timestamp").sort_index()
 
-        # 🔥 1. Lag komplett dato-range basert på hele datasettet
+        # Lag daglig tidsserie
         full_range = pd.date_range(
             start=df.index.min(),
             end=df.index.max(),
@@ -65,11 +65,11 @@ def fill_missing_days_per_station(
 
         df = df.reindex(full_range)
 
-        # 🔥 2. Fyll hull globalt (viktig!)
+        
         df["count_total"] = df["count_total"].ffill()
         df["transformer_station"] = df["transformer_station"].ffill()
 
-        # 🔥 3. Filtrer til periodene etterpå
+        
         period_dfs = []
         for start, end in periods:
             df_period = df.loc[start:end]

@@ -26,7 +26,7 @@ def prepare_norgespris_regression_data(
     if "consumption_code" in df.columns and exclude_consumption_codes:
         df = df[~df["consumption_code"].isin(exclude_consumption_codes)].copy()
 
-    # Periodemarkør 0/1 fra forbruksfilen
+
     df = df[df["norgespris"].notna()].copy()
     df["norgespris"] = df["norgespris"].astype(int)
 
@@ -40,7 +40,7 @@ def prepare_norgespris_regression_data(
         station_daily["timestamp"] = pd.to_datetime(station_daily["timestamp"])
         station_daily["date"] = station_daily["timestamp"].dt.normalize()
 
-        # Ett daglig nivå per stasjon
+        
         station_daily = (
             station_daily.groupby(["date", "transformer_station"], as_index=False)["count_total"]
             .max()
@@ -49,10 +49,10 @@ def prepare_norgespris_regression_data(
         # Bruk kjent total kundebase i denne trafostasjonen
         station_daily["station_customers_total"] = float(station_customers_total)
 
-        # Andel med Norgespris = antall med avtale / total kundebase
+        # Andel kunder med Norgespris 
         station_daily["norgespris_share"] = station_daily["count_total"] / station_daily["station_customers_total"]
 
-        # Slå på stasjonsnivå + dato
+        
         df = df.merge(
             station_daily[["date", "transformer_station", "count_total", "station_customers_total", "norgespris_share"]],
             on=["date", "transformer_station"],
@@ -64,14 +64,14 @@ def prepare_norgespris_regression_data(
         df["station_customers_total"] = float(station_customers_total)
         df["norgespris_share"] = np.nan
 
-    # df_norgespris finnes kun på dager med norgespris=1. Sett 0 i før-periode.
+    # Sett 0 i før-periode.
     df.loc[df["norgespris"] == 0, ["count_total", "norgespris_share"]] = 0.0
 
     # Robust fallback om det mangler noen match i etter-periode
     df["count_total"] = df["count_total"].fillna(0.0)
     df["norgespris_share"] = df["norgespris_share"].fillna(0.0)
 
-    # Klipp andel til [0, 1] for å unngå ekstreme verdier ved eventuelle datamismatch
+    # Begrens andel til gyldig intervall
     df["norgespris_share"] = df["norgespris_share"].clip(lower=0.0, upper=1.0)
 
     return df
@@ -102,13 +102,15 @@ def fit_best_norgespris_model(df, dependent_variable="value_kwh"):
     modeling_df = df.copy()
     modeling_df["timestamp"] = pd.to_datetime(modeling_df["timestamp"])
     modeling_df["metering_point_anonymous"] = modeling_df["metering_point_anonymous"].astype(str)
-    # Sikrer at indikatorer og tidskomponenter behandles som diskrete numeriske variabler.
+
+    # Konverter indikator- og tidsvariabler til int
     modeling_df["is_weekend"] = modeling_df["is_weekend"].astype(int)
     modeling_df["is_holiday"] = modeling_df["is_holiday"].astype(int)
     modeling_df["hour"] = modeling_df["hour"].astype(int)
     modeling_df["month"] = modeling_df["month"].astype(int)
     modeling_df["norgespris"] = modeling_df["norgespris"].astype(int)
     modeling_df["norgespris_share"] = modeling_df["norgespris_share"].astype(float)
+
     # Viktig: log1p betyr log(1 + forbruk), ikke vanlig log(forbruk).
     modeling_df["log_value_kwh"] = np.log1p(modeling_df[dependent_variable])
 
@@ -128,7 +130,7 @@ def fit_best_norgespris_model(df, dependent_variable="value_kwh"):
         ]
     ).copy()
 
-    # Dato for time fixed effects
+    
     modeling_df["date"] = modeling_df["timestamp"].dt.normalize()
 
     panel_df = modeling_df.set_index(["metering_point_anonymous", "timestamp"]).sort_index()
@@ -141,7 +143,7 @@ def fit_best_norgespris_model(df, dependent_variable="value_kwh"):
 
     model = PanelOLS.from_formula(formula, data=panel_df, drop_absorbed=True)
 
-    # Clustered standard errors
+    
     results = model.fit(
         cov_type="clustered",
         cluster_entity=True,
