@@ -79,6 +79,17 @@ Prosjektet inkluderer egne moduler for dataklargjøring og feature engineering. 
 
 ## Installasjon
 
+### 0. Installer Conda (Miniconda eller Anaconda)
+Conda må være installert for å kunne sette opp miljøet.
+
+Last ned her:
+https://www.anaconda.com/download/success
+
+Etter installasjon, lukk og åpne terminalen på nytt og sjekk at det fungerer:
+```bash
+conda --version
+```
+
 ### 1. Klon prosjektet
 
 ```bash
