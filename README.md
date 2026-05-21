@@ -3,35 +3,38 @@
 ## Om prosjektet
 Dette prosjektet undersøker i hvilken grad **Norgespris** har påvirket belastningsnivået i strømnettet i Agder i perioder med begrenset nettkapasitet. Prosjektet kombinerer datainnhenting, databehandling, feature engineering, statistisk analyse og visualisering for å utforske om endrede prismekanismer kan ha påvirket belastning i utvalgte høylastperioder.
 
-Analysen er gjennomført i Python, med **DuckDB** for datalagring og **Streamlit** for visualisering av resultater.
+Analysen er gjennomført i Python, med **DuckDB** for datalagring og **Streamlit** for visualisering.
 
 ## Problemstilling
 **I hvilken grad har Norgespris påvirket belastningsnivået i strømnettet i Agder i perioder med begrenset nettkapasitet?**
 
 ## Formål
-Formålet med prosjektet er å analysere om innføringen av Norgespris har ført til endringer i strømforbruksmønstre som kan bidra til økt belastning i strømnettet i Agder, særlig i perioder med begrenset kapasitet.
+Formålet er å finne ut om innføringen av Norgespris har ført til endringer i strømforbruksmønstre som kan bidra til økt belastning i strømnettet i Agder i kritiske perioder.
 
 ## Prosjektmål
-- hente inn og bearbeide relevante data
-- klargjøre datasett for analyse gjennom feature engineering
-- gjennomføre regresjonsanalyse og annen statistisk analyse
-- visualisere resultater i et interaktivt dashboard
-- utforske sammenhenger mellom prisordning, forbruksmønster og belastning i strømnettet
+- Hente inn og bearbeide relevante data
+- Klargjøre datasett for analyse gjennom feature engineering
+- Gjennomføre regresjonsanalyse og annen statistisk analyse
+- Visualisere resultater i et interaktivt dashboard
+- Utforske sammenhenger mellom prisordning, forbruksmønster og belastning i strømnettet
 
 ## Teknologier og verktøy
 Prosjektet benytter blant annet:
 
 - **Python**
-- **Pandas**, **NumPy** og **SciPy**
-- **Statsmodels** og **Scikit-learn**
+- **Pandas** og **NumPy**
+- **Linearmodels**
 - **Matplotlib**
-- **Requests**
-- **Azure Blob Storage**
-- **python-dotenv**
+- **Altair**
 - **DuckDB**
+- **Jupyter**
+- **ipykernel**
 - **Streamlit**
-- **PySpark**
-- **holidays** og **arrow**
+- **Requests**
+- **geopy**
+- **Azure-Storage-Blob**
+- **python-dotenv**
+- **holidays**
 
 ## Prosjektstruktur
 ```bash
@@ -45,27 +48,34 @@ Prosjektet benytter blant annet:
 │   ├── analysis/
 │   │   ├── __init__.py
 │   │   ├── regression.py         # Regresjonsanalyse
-│   │   └── spark_utils.py        # Hjelpefunksjoner for Spark
-│   │
-│   ├── assets/images/            # Logoer og andre bildefiler
+│   │   └── weather_regression.py # Værmodell for panelregresjon
 │   │
 │   ├── dashboard/
-│   │   └── app.py                # Streamlit-applikasjon
+│   │   ├── app.py                # Streamlit-applikasjonen
+│   │   ├── config.py             # App-konfigurasjon og tema
+│   │   ├── queries.py            # Datainnhenting og spørringer
+│   │   └── styles.py             # Tilpasning av utseende i dashboardet
 │   │
 │   ├── database/
 │   │   ├── __init__.py
-│   │   └── duckdb_utils.py       # Hjelpefunksjoner for DuckDB
+│   │   └── duckdb_utils.py       # DuckDB / Azure Blob Storage-tilgang
 │   │
 │   └── feature_engineering/
 │       ├── __init__.py
-│       ├── forbruksdata.py       # Behandling av forbruksdata
-│       └── værdata.py            # Behandling av værdata
+│       ├── forbruksdata.py       # Forbruksdata rensing og feature engineering
+│       ├── norgespris.py         # Norgespris-data rensing og stasjonsdeling
+│       └── værdata.py            # Vær API-henting og Azure-opplast
 │
+├── .streamlit/
+│   └── config.toml               # Streamlit-tema og app-konfigurasjon
 ├── .gitignore
 ├── environment.yml
-├── requirements.txt
 └── README.md
-````
+```
+
+## Feature engineering
+
+Prosjektet inkluderer egne moduler for dataklargjøring og feature engineering. Dette omfatter blant annet generering av tidsvariabler, håndtering av Norgespris-perioder og kobling av værdata til forbruksdata på timebasis.
 
 ## Installasjon
 
@@ -76,27 +86,31 @@ git clone <repo-url>
 cd <prosjektnavn>
 ```
 
-### 2. Opprett virtuelt miljø
-
-På macOS/Linux:
+### 2. Opprett og aktiver Conda-miljø
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+conda env create -f environment.yml
+conda activate bachelor2026
 ```
 
-På Windows:
+### 3. Installer Jupyter-kernel
 
 ```bash
-python -m venv .venv
-.venv\Scripts\activate
+python -m ipykernel install --user --name bachelor2026 --display-name "Bachelor 2026"
 ```
 
-### 3. Installer avhengigheter
+### 4. Konfigurer miljøvariabler
 
-```bash
-pip install -r requirements.txt
+Opprett en `.env`-fil i prosjektets rotkatalog med følgende variabler:
+
+```env
+AZURE_STORAGE_CONNECTION_STRING="<din-azure-connection-string>"
+FROST_CLIENT_ID="<din-frost-client-id>"
 ```
+
+Disse lastes automatisk ved hjelp av `python-dotenv` og brukes av både databehandling, analyse og visualisering.
+
+Hvis du kjører appen i Streamlit Cloud eller en annen skyplattform, kan variablene legges inn som sikre `secrets` eller miljøvariabler i plattformen.
 
 ## Kjøring
 
@@ -112,67 +126,45 @@ streamlit run src/dashboard/app.py
 jupyter notebook
 ```
 
-## Avhengigheter
-
-Prosjektet bruker følgende Python-pakker:
-
-```txt
-pandas
-numpy
-scipy
-matplotlib
-statsmodels
-scikit-learn
-geopy
-requests
-azure-storage-blob
-azure-identity
-python-dotenv
-duckdb
-streamlit
-pyspark
-holidays
-arrow
-```
-
 ## Data og behandling
 
-Prosjektet bygger på datasett fra trafostasjonene:
+Prosjektet benytter data fra trafostasjonene:
 
 - Breive
 - Frikstad
 - Hartevatn
 - Timenes
 
-For hver stasjon benyttes blant annet:
-- forbruksdata
-- værdata
-- antall brukere med Norgespris
-- tidsvariabler og kalenderdata
-- informasjon om perioder med begrenset nettkapasitet
+For hver stasjon brukes blant annet:
+- Forbruksdata
+- Værdata
+- Antall brukere med Norgespris
+- Tidsvariabler og kalenderdata
+- Informasjon om perioder med begrenset nettkapasitet
 
-Data hentes inn, vaskes og transformeres før de brukes i analyse og visualisering. Værdata hentes fra Frost API, som er Meteorologisk institutts API for historiske vær- og klimadata. Deler av databehandlingen er organisert i egne moduler for forbruksdata, værdata og databasehåndtering.
+Data hentes inn, vaskes og transformeres før analyse og visualisering. Værdata hentes fra Frost API, Meteorologisk institutt sitt API for historiske vær- og klimadata. Datahåndteringen er organisert i egne moduler for forbruksdata, værdata og database.
 
-Dataene lagres i Azure Blob Storage. Tilgang til lagringen krever autentisering gjennom hemmelige nøkler eller miljøvariabler som ikke er versjonstyrt i GitHub av sikkerhetshensyn. For å kjøre prosjektet med direkte datatilgang må gyldige miljøvariabler derfor settes opp lokalt, for eksempel i en `.env`-fil som ikke deles i repositoryet.
+Data lagres i Azure Blob Storage. Tilgang krever autentisering med hemmelige nøkler eller miljøvariabler som ikke er versjonstyrt i GitHub. For direkte datatilgang må gyldige miljøvariabler være satt opp lokalt.
 
-Dersom slik tilgang ikke er satt opp, må data lastes ned og lagres lokalt før analyse og kjøring av prosjektet.
+Hvis slik tilgang ikke er tilgjengelig, må data lastes ned og lagres lokalt før prosjektet kan kjøres fullt ut.
 
 ## Analyse
 
-Analysen fokuserer på om Norgespris kan ha påvirket belastningsnivået i strømnettet i Agder. Dette undersøkes ved hjelp av statistiske metoder og regresjonsanalyse, samt utforskende analyser i notebooks.
+Analysen fokuserer på om Norgespris kan ha påvirket belastningsnivået i strømnettet i Agder. Dette undersøkes med statistiske metoder, regresjonsanalyse og utforskende notebooks.
 
 ## Dashboard
 
-Prosjektet inkluderer et dashboard bygget i Streamlit for å presentere resultater og visualiseringer på en mer tilgjengelig måte.
+Streamlit-dashboardet er bygget i `src/dashboard/`. App-koden ligger i `src/dashboard/app.py`, mens `src/dashboard/config.py`, `src/dashboard/queries.py` og `src/dashboard/styles.py` håndterer konfigurasjon, datainnhenting og utseende.
 
 ## Videre arbeid
 
-Mulige videreutviklinger av prosjektet er:
+Mulige videreutviklinger er:
 
-* teste flere modeller og forklaringsvariabler
-* utvide analysen til flere geografiske områder
-* forbedre dashboard og visualiseringer
-* videreutvikle datarørledningene og databaseoppsettet
+- Teste flere modeller og forklaringsvariabler
+- Skalere analysen til flere nivåer i strømnettet
+- Utvide analysen til flere geografiske områder
+- Forbedre dashboard og visualiseringer
+- Videreutvikle datarørledningene og databaseoppsettet
 
 ## Merknader
 
@@ -181,5 +173,3 @@ Mapper og filer som `__pycache__` og `.DS_Store` bør normalt ikke versjonstyres
 ## Lisens
 
 Dette prosjektet er utviklet som en del av et bachelorprosjekt og er ikke ment for kommersiell bruk.
-
-````
