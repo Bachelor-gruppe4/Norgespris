@@ -9,7 +9,7 @@ WEATHER_VARIABLES = ["air_temperature", "wind_speed", "precipitation_mm"]
 
 
 def _two_sided_pvalue_from_z(z_value: float) -> float:
-    """Compute two-sided p-value from standard normal z-score."""
+    """Beregn en tosidig p-verdi fra en standard normal z-skår."""
     return math.erfc(abs(z_value) / math.sqrt(2.0))
 
 
@@ -18,7 +18,7 @@ def _fit_single_period_weather_model(
     weather_variables: list[str],
     dependent_variable: str,
 ):
-    """Fit a smaller panel model for a single period and return results plus weather p-values."""
+    # Panelmodell for én periode
     period_df = period_df.copy()
     period_df["timestamp"] = pd.to_datetime(period_df["timestamp"])
     period_df["metering_point_anonymous"] = period_df["metering_point_anonymous"].astype(str)
@@ -72,18 +72,8 @@ def fit_weather_before_after_model(
     dependent_variable: str = "value_kwh",
     weather_variables: list[str] | None = None,
 ):
-    """
-    Estimate separate panel models for the pre and post Norgespris periods.
-
-    Returns
-    -------
-    pre_results : PanelEffectsResults
-        Fitted PanelOLS results for the pre-period model.
-    post_results : PanelEffectsResults
-        Fitted PanelOLS results for the post-period model.
-    weather_pvalues_df : pd.DataFrame
-        Table with weather coefficients and p-values before and after Norgespris.
-    """
+  
+  # Sammenligner væreffekt før og etter Norgespris
     weather_variables = weather_variables or WEATHER_VARIABLES
 
     required_columns = {
