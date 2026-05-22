@@ -59,27 +59,6 @@ def inject_dashboard_css():
             color: var(--aenergi-burgundy) !important;
         }
 
-        div[data-testid="stToggle"] [role="switch"] {
-            background-color: #7D283D !important;
-            border: 1px solid #7D283D !important;
-        }
-
-        div[data-testid="stToggle"] [role="switch"][aria-checked="true"] {
-            background-color: #7D283D !important;
-            border-color: #7D283D !important;
-        }
-
-        div[data-testid="stToggle"] input[type="checkbox"][id="weather_control_enabled"] + div,
-        div[data-testid="stToggle"] input[type="checkbox"][id="weather_control_enabled"]:checked + div,
-        div[data-testid="stToggle"] input[type="checkbox"][id="weather_control_enabled"] + div > div,
-        div[data-testid="stToggle"] input[type="checkbox"][id="weather_control_enabled"]:checked + div > div {
-            background-color: #7D283D !important;
-            border-color: #7D283D !important;
-        }
-
-        div[data-testid="stToggle"] input[type="checkbox"][id="weather_control_enabled"] + div > div {
-            background-color: #ffffff !important;
-        }
 
         div[data-testid="stMultiSelect"] .stTags {
             background-color: #7D283D !important;
