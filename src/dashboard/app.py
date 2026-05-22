@@ -17,7 +17,6 @@ from src.dashboard.config import (
 from src.dashboard.queries import (
     apply_weather_control,
     get_consumption_season_summary,
-    get_forbruksdata,
     get_norgespris_user_stats,
     get_season_comparison,
     get_total_users,
@@ -90,10 +89,10 @@ with col_filter:
     else:
         selected_consumption_codes = [35, 36]
 
-    weather_control_enabled = st.toggle(
+    weather_control_enabled = st.checkbox(
         "Kontroller for vær (regresjon)",
         value=False,
-        key="weather_control_enabled",
+        key="weather_control_checkbox",
         help="Justerer kurvene med beta-verdier fra regresjonsanalysen."
     )
 
@@ -162,13 +161,6 @@ with col_filter:
                 key=f"beta_precipitation_after_{selected_område}",
             )
 
-station_texts = {
-    "Breive": "Breive har en høy andel fritidsboliger. Regresjonsmodellen for Breive indikerer at økt utbredelse av Norgespris henger sammen med høyere strømforbruk. Når det kontrolleres for temperatur, vind, nedbør og tidsmønstre, er en økning på 10 prosentpoeng i andelen kunder med Norgespris assosiert med 0,30 % høyere forbruk. Den estimerte merbruken i perioden etter at Norgespris ble innført er 166 573 kWh, tilsvarende 3,89 % av totalforbruket.",
-    "Frikstad": "Frikstad har et større og mer sammensatt kundegrunnlag. Regresjonsmodellen for Frikstad indikerer at økt utbredelse av Norgespris henger sammen med noe høyere strømforbruk. Når det kontrolleres for temperatur, vind, nedbør og tidsmønstre, er en økning på 10 prosentpoeng i andelen kunder med Norgespris assosiert med omtrent 0,19–0,20 % høyere forbruk. Den estimerte merbruken i perioden etter at Norgespris ble innført er omtrent 277 000–285 000 kWh, tilsvarende rundt 2,15–2,21 % av totalforbruket.",
-    "Hartevatn": "Hartevatn har en høy andel fritidsboliger. Regresjonsmodellen for Hartevatn indikerer at økt utbredelse av Norgespris henger sammen med høyere strømforbruk. Når det kontrolleres for temperatur, vind, nedbør og tidsmønstre, er en økning på 10 prosentpoeng i andelen kunder med Norgespris assosiert med 0,32 % høyere forbruk. Den estimerte merbruken i perioden etter at Norgespris ble innført er 277 891 kWh, tilsvarende 4,31 % av totalforbruket.",
-    "Timenes": "Regresjonsmodellen for Timenes indikerer at økt utbredelse av Norgespris henger sammen med høyere strømforbruk. Når det kontrolleres for temperatur, vind, nedbør og tidsmønstre, er en økning på 10 prosentpoeng i andelen kunder med Norgespris assosiert med 0,39 % høyere forbruk. Den estimerte merbruken i perioden etter at Norgespris ble innført er 547 247 kWh, tilsvarende 3,93 % av totalforbruket.",
-}
-
 with col_graph:
     # Hent data basert på filtre
     with st.spinner("Henter data..."):
@@ -203,7 +195,7 @@ with col_graph:
         st.markdown(
             f"""
             <div class="station-info-box">
-                {station_texts.get(selected_område, "")}
+                {STATION_TEXTS.get(selected_område, "")}
             </div>
             """,
             unsafe_allow_html=True
@@ -227,6 +219,11 @@ with col_graph:
                 )
             elif selected_weather_controls and weather_cov_df.empty:
                 st.info("Fant ikke værdata for valgt filter, viser ukontrollert graf.")
+
+        if weather_control_enabled and selected_weather_controls and not weather_cov_df.empty:
+            summary_df = plot_df.groupby("season_label", as_index=False)["avg_forbruk"].mean()
+        else:
+            summary_df = consumption_summary_df
 
         pivot_df = plot_df.pivot(index='hour', columns='season_label', values='avg_forbruk')
 
@@ -272,9 +269,9 @@ with col_graph:
         # Bruk consumption_summary_df for gjennomsnittene (beregnet fra rådata)
         before_avg = None
         after_avg = None
-        if not consumption_summary_df.empty:
-            before_row = consumption_summary_df[consumption_summary_df["season_label"] == "Før Norgespris"]
-            after_row = consumption_summary_df[consumption_summary_df["season_label"] == "Etter Norgespris"]
+        if not summary_df.empty:
+            before_row = summary_df[summary_df["season_label"] == "Før Norgespris"]
+            after_row = summary_df[summary_df["season_label"] == "Etter Norgespris"]
             if not before_row.empty:
                 before_avg = before_row["avg_forbruk"].iloc[0]
             if not after_row.empty:
